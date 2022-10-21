@@ -123,17 +123,19 @@ else:
 
 # Append LLC to cache array
 # LLC operates at maximum freqency of cores, if not already specified
-caches['LLC'] = ChainMap(caches.get('LLC',{}), config_file['LLC'].copy(), {'frequency': max(cpu['frequency'] for cpu in cores)}, default_llc.copy())
+#caches['LLC'] = ChainMap(caches.get('LLC',{}), config_file['LLC'].copy(), {'frequency': max(cpu['frequency'] for cpu in cores)}, default_llc.copy())
 
 # If specified in the core, move definition to cache array
 for cpu in cores:
     # Assign defaults that are unique per core
-    for cache_name in ('L1I', 'L1D', 'L2C', 'ITLB', 'DTLB', 'STLB'):
+    for cache_name in ('L1I', 'L1D', 'L2C', 'ITLB', 'DTLB', 'STLB','LLC'):
         if isinstance(cpu[cache_name], dict):
             cpu[cache_name] = ChainMap(cpu[cache_name], {'name': cpu['name'] + '_' + cache_name}, config_file[cache_name].copy())
             caches[cpu[cache_name]['name']] = cpu[cache_name]
             cpu[cache_name] = cpu[cache_name]['name']
-
+            print(cpu[cache_name])
+print('end')
+#print(caches)
 # Assign defaults that are unique per core
 for cpu in cores:
     cpu['PTW'] = ChainMap(cpu.get('PTW',{}), config_file.get('PTW', {}), {'name': cpu['name'] + '_PTW', 'cpu': cpu['index'], 'frequency': cpu['frequency'], 'lower_level': cpu['L1D']}, default_ptw.copy())
@@ -141,11 +143,11 @@ for cpu in cores:
     caches[cpu['L1D']] = ChainMap(caches[cpu['L1D']], {'frequency': cpu['frequency'], 'lower_level': cpu['L2C']}, default_l1d.copy())
     caches[cpu['ITLB']] = ChainMap(caches[cpu['ITLB']], {'frequency': cpu['frequency'], 'lower_level': cpu['STLB']}, default_itlb.copy())
     caches[cpu['DTLB']] = ChainMap(caches[cpu['DTLB']], {'frequency': cpu['frequency'], 'lower_level': cpu['STLB']}, default_dtlb.copy())
-
+    caches[cpu['L2C']] = ChainMap(caches[cpu['L2C']], {'frequency': cpu['frequency'], 'lower_level': cpu['LLC']}, default_l2c.copy())
     # L2C
-    cache_name = caches[cpu['L1D']]['lower_level']
-    if cache_name != 'DRAM':
-        caches[cache_name] = ChainMap(caches[cache_name], {'frequency': cpu['frequency'], 'lower_level': 'LLC'}, default_l2c.copy())
+    #cache_name = caches[cpu['L1D']]['lower_level']
+    #if cache_name != 'DRAM':
+     #   caches[cache_name] = ChainMap(caches[cache_name], {'frequency': cpu['frequency'], 'lower_level': 'LLC'}, default_l2c.copy())
 
     # STLB
     cache_name = caches[cpu['DTLB']]['lower_level']
@@ -155,13 +157,13 @@ for cpu in cores:
     # LLC
     cache_name = caches[caches[cpu['L1D']]['lower_level']]['lower_level']
     if cache_name != 'DRAM':
-        caches[cache_name] = ChainMap(caches[cache_name], default_llc.copy())
+        caches[cache_name] = ChainMap(caches[cache_name], {'frequency': cpu['frequency'], 'lower_level': 'DRAM'},  default_llc.copy())
 
 # Remove caches that are inaccessible
 accessible = [False]*len(caches)
 for i,ll in enumerate(caches.values()):
     accessible[i] |= any(ul['lower_level'] == ll['name'] for ul in caches.values()) # The cache is accessible from another cache
-    accessible[i] |= any(ll['name'] in [cpu['L1I'], cpu['L1D'], cpu['ITLB'], cpu['DTLB']] for cpu in cores) # The cache is accessible from a core
+    accessible[i] |= any(ll['name'] in [cpu['L1I'], cpu['L1D'], cpu['ITLB'], cpu['DTLB'], cpu['L2C']] for cpu in cores) # The cache is accessible from a core
 caches = dict(itertools.compress(caches.items(), accessible))
 
 # Establish latencies in caches
@@ -202,6 +204,11 @@ for cpu in cores:
         cache_name = caches[cache_name]['lower_level']
 
     cache_name = cpu['L1D']
+    while cache_name in caches:
+        caches[cache_name]['offset_bits'] = 'LOG2_BLOCK_SIZE'
+        cache_name = caches[cache_name]['lower_level']
+        
+    cache_name = cpu['L2C']
     while cache_name in caches:
         caches[cache_name]['offset_bits'] = 'LOG2_BLOCK_SIZE'
         cache_name = caches[cache_name]['lower_level']
@@ -380,17 +387,22 @@ for i in range(len(cores)):
     cores[i]['PTW'] = cores[i]['PTW']['name']
 
 memory_system = dict(**caches, **ptws)
-
+print(memory_system)
 # Give each element a fill level
-active_keys = list(itertools.chain.from_iterable((cpu['ITLB'], cpu['DTLB'], cpu['L1I'], cpu['L1D']) for cpu in cores))
+active_keys = list(itertools.chain.from_iterable((cpu['ITLB'], cpu['DTLB'], cpu['L1I'], cpu['L1D'],cpu['L2C']) for cpu in cores))
+print(active_keys)
 for k in active_keys:
     memory_system[k]['fill_level'] = 1
 
 for fill_level in range(1,len(memory_system)+1):
-    for k in active_keys:
-        if memory_system[k]['lower_level'] != 'DRAM':
-            memory_system[memory_system[k]['lower_level']]['fill_level'] = max(memory_system[memory_system[k]['lower_level']].get('fill_level',0), fill_level+1)
-    active_keys = [memory_system[k]['lower_level'] for k in active_keys if memory_system[k]['lower_level'] != 'DRAM']
+	for k in active_keys:
+		#print(k)
+		
+        		if memory_system[k]['lower_level'] != 'DRAM':
+            			
+            				memory_system[memory_system[k]['lower_level']]['fill_level'] = max(memory_system[memory_system[k]['lower_level']].get('fill_level',0), fill_level+1)
+	
+	active_keys = [memory_system[k]['lower_level'] for k in active_keys if memory_system[k]['lower_level'] != 'DRAM']
 
 # Remove name index
 memory_system = list(memory_system.values())
