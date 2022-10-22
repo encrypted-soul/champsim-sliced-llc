@@ -124,7 +124,7 @@ void L2C::handle_read()
     // vaddr to the prefetcher
     ever_seen_data |= (handle_pkt.v_address != handle_pkt.ip);
 
-    uint32_t slice = get_slice(fill_mshr->address);
+    uint32_t slice = get_slice(handle_pkt.address);
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
