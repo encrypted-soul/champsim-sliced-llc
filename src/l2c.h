@@ -123,7 +123,7 @@ public:
       : CACHE(v1, freq_scale, fill_level, v2, v3, v5, v6, v7, v8, hit_lat,
               fill_lat, max_read, max_write, offset_bits, pref_load,
               wq_full_addr, va_pref, pref_act_mask, ll, pref, repl) {
-    assert(lls.size() == NUM_CPUS);
+    //assert(lls.size() == NUM_CPUS);
     all_lower_levels = std::move(lls);
   }
 };

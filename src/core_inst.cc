@@ -28,7 +28,7 @@ L2C cpu0_L2C("cpu0_L2C", 1.0, 5, 1024, 8, 32, 32, 16, 32, 9, 1, 1, 1,
              LOG2_BLOCK_SIZE, 0, 0, 0, 5, &cpu0_LLC, {&cpu0_LLC, &cpu1_LLC},
              CACHE::pref_t::pprefetcherDno, CACHE::repl_t::rreplacementDlru);
 L2C cpu1_L2C("cpu1_L2C", 1.0, 5, 1024, 8, 32, 32, 16, 32, 9, 1, 1, 1,
-             LOG2_BLOCK_SIZE, 0, 0, 0, 5, &cpu1_LLC,{&cpu0_LLC},
+             LOG2_BLOCK_SIZE, 0, 0, 0, 5, &cpu1_LLC,{&cpu0_LLC,&cpu1_LLC},
              CACHE::pref_t::pprefetcherDno, CACHE::repl_t::rreplacementDlru);
 CACHE cpu0_L1D("cpu0_L1D", 1.0, 4, 64, 12, 64, 64, 8, 16, 4, 1, 2, 2,
                LOG2_BLOCK_SIZE, 0, 1, 0, 5, &cpu0_L2C,
