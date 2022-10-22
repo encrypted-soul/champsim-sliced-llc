@@ -44,7 +44,7 @@ void PageTableWalker::handle_read()
     }
 
     PACKET packet = handle_pkt;
-    packet.fill_level = lower_level->fill_level; // This packet will be sent from L1 to PTW.
+    packet.fill_level = sliced_lower_level->fill_level; // This packet will be sent from L1 to PTW.
     packet.address = ptw_addr;
     packet.v_address = handle_pkt.address;
     packet.cpu = cpu;
@@ -53,7 +53,7 @@ void PageTableWalker::handle_read()
     packet.translation_level = packet.init_translation_level;
     packet.to_return = {this};
 
-    int rq_index = lower_level->add_rq(&packet);
+    int rq_index = sliced_lower_level->add_rq(&packet);
     if (rq_index == -2)
       return;
 
@@ -137,7 +137,7 @@ void PageTableWalker::handle_fill()
         packet.to_return = {this};
         packet.translation_level = fill_mshr->translation_level - 1;
 
-        int rq_index = lower_level->add_rq(&packet);
+        int rq_index = sliced_lower_level->add_rq(&packet);
         if (rq_index != -2) {
           fill_mshr->event_cycle = std::numeric_limits<uint64_t>::max();
           fill_mshr->address = packet.address;
