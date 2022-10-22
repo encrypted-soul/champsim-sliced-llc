@@ -23,6 +23,7 @@ public:
   vector<MemoryRequestConsumer *> all_lower_levels;
 
   uint32_t get_slice(uint64_t address);
+  bool filllike_miss(std::size_t set, std::size_t way,std::size_t slice,  PACKET& handle_pkt);
 
   // constructor
   L2C(std::string v1, double freq_scale, unsigned fill_level, uint32_t v2,
