@@ -51,12 +51,12 @@ public:
 class MemoryRequestProducer
 {
 public:
-  MemoryRequestConsumer* lower_level;
+  MemoryRequestConsumer* sliced_lower_level;
   virtual void return_data(PACKET* packet) = 0;
 
 protected:
   MemoryRequestProducer() {}
-  explicit MemoryRequestProducer(MemoryRequestConsumer* ll) : lower_level(ll) {}
+  explicit MemoryRequestProducer(MemoryRequestConsumer* ll) : sliced_lower_level(ll) {}
 };
 
 #endif

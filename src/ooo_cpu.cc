@@ -310,7 +310,7 @@ void O3_CPU::do_translate_fetch(champsim::circular_buffer<ooo_model_instr>::iter
   // begin process of fetching this instruction by sending it to the ITLB
   // add it to the ITLB's read queue
   PACKET trace_packet;
-  trace_packet.fill_level = ITLB_bus.lower_level->fill_level;
+  trace_packet.fill_level = ITLB_bus.sliced_lower_level->fill_level;
   trace_packet.cpu = cpu;
   trace_packet.address = begin->ip;
   trace_packet.v_address = begin->ip;
@@ -323,7 +323,7 @@ void O3_CPU::do_translate_fetch(champsim::circular_buffer<ooo_model_instr>::iter
   for (; begin != end; ++begin)
     trace_packet.instr_depend_on_me.push_back(begin);
 
-  int rq_index = ITLB_bus.lower_level->add_rq(&trace_packet);
+  int rq_index = ITLB_bus.sliced_lower_level->add_rq(&trace_packet);
 
   if (rq_index != -2) {
     // successfully sent to the ITLB, so mark all instructions in the
@@ -363,7 +363,7 @@ void O3_CPU::do_fetch_instruction(champsim::circular_buffer<ooo_model_instr>::it
 {
   // add it to the L1-I's read queue
   PACKET fetch_packet;
-  fetch_packet.fill_level = L1I_bus.lower_level->fill_level;
+  fetch_packet.fill_level = L1I_bus.sliced_lower_level->fill_level;
   fetch_packet.cpu = cpu;
   fetch_packet.address = begin->instruction_pa;
   fetch_packet.data = begin->instruction_pa;
@@ -377,7 +377,7 @@ void O3_CPU::do_fetch_instruction(champsim::circular_buffer<ooo_model_instr>::it
   for (; begin != end; ++begin)
     fetch_packet.instr_depend_on_me.push_back(begin);
 
-  int rq_index = L1I_bus.lower_level->add_rq(&fetch_packet);
+  int rq_index = L1I_bus.sliced_lower_level->add_rq(&fetch_packet);
 
   if (rq_index != -2) {
     // mark all instructions from this cache line as having been fetched
@@ -483,7 +483,7 @@ void O3_CPU::dispatch_instruction()
     throw champsim::deadlock{cpu};
 }
 
-int O3_CPU::prefetch_code_line(uint64_t pf_v_addr) { return static_cast<CACHE*>(L1I_bus.lower_level)->prefetch_line(0, pf_v_addr, pf_v_addr, true, 0); }
+int O3_CPU::prefetch_code_line(uint64_t pf_v_addr) { return static_cast<CACHE*>(L1I_bus.sliced_lower_level)->prefetch_line(0, pf_v_addr, pf_v_addr, true, 0); }
 
 void O3_CPU::schedule_instruction()
 {
@@ -802,7 +802,7 @@ int O3_CPU::do_translate_store(std::vector<LSQ_ENTRY>::iterator sq_it)
 {
   PACKET data_packet;
 
-  data_packet.fill_level = DTLB_bus.lower_level->fill_level;
+  data_packet.fill_level = DTLB_bus.sliced_lower_level->fill_level;
   data_packet.cpu = cpu;
   data_packet.address = sq_it->virtual_address;
   data_packet.v_address = sq_it->virtual_address;
@@ -818,7 +818,7 @@ int O3_CPU::do_translate_store(std::vector<LSQ_ENTRY>::iterator sq_it)
     std::cout << "[RTS0] " << __func__ << " instr_id: " << sq_it->instr_id << " rob_index: " << sq_it->rob_index << " is popped from to RTS0" << std::endl;
   })
 
-  int rq_index = DTLB_bus.lower_level->add_rq(&data_packet);
+  int rq_index = DTLB_bus.sliced_lower_level->add_rq(&data_packet);
 
   if (rq_index != -2)
     sq_it->translated = INFLIGHT;
@@ -865,7 +865,7 @@ void O3_CPU::execute_store(std::vector<LSQ_ENTRY>::iterator sq_it)
 int O3_CPU::do_translate_load(std::vector<LSQ_ENTRY>::iterator lq_it)
 {
   PACKET data_packet;
-  data_packet.fill_level = DTLB_bus.lower_level->fill_level;
+  data_packet.fill_level = DTLB_bus.sliced_lower_level->fill_level;
   data_packet.cpu = cpu;
   data_packet.address = lq_it->virtual_address;
   data_packet.v_address = lq_it->virtual_address;
@@ -881,7 +881,7 @@ int O3_CPU::do_translate_load(std::vector<LSQ_ENTRY>::iterator lq_it)
     std::cout << "[RTL0] " << __func__ << " instr_id: " << lq_it->instr_id << " rob_index: " << lq_it->rob_index << " is popped to RTL0" << std::endl;
   })
 
-  int rq_index = DTLB_bus.lower_level->add_rq(&data_packet);
+  int rq_index = DTLB_bus.sliced_lower_level->add_rq(&data_packet);
 
   if (rq_index != -2)
     lq_it->translated = INFLIGHT;
@@ -893,7 +893,7 @@ int O3_CPU::execute_load(std::vector<LSQ_ENTRY>::iterator lq_it)
 {
   // add it to L1D
   PACKET data_packet;
-  data_packet.fill_level = L1D_bus.lower_level->fill_level;
+  data_packet.fill_level = L1D_bus.sliced_lower_level->fill_level;
   data_packet.cpu = cpu;
   data_packet.address = lq_it->physical_address;
   data_packet.v_address = lq_it->virtual_address;
@@ -905,7 +905,7 @@ int O3_CPU::execute_load(std::vector<LSQ_ENTRY>::iterator lq_it)
   data_packet.to_return = {&L1D_bus};
   data_packet.lq_index_depend_on_me = {lq_it};
 
-  int rq_index = L1D_bus.lower_level->add_rq(&data_packet);
+  int rq_index = L1D_bus.sliced_lower_level->add_rq(&data_packet);
 
   if (rq_index != -2)
     lq_it->fetched = INFLIGHT;
@@ -973,7 +973,7 @@ void O3_CPU::handle_memory_return()
   // Instruction Memory
 
   std::size_t available_fetch_bandwidth = FETCH_WIDTH;
-  std::size_t to_read = static_cast<CACHE*>(ITLB_bus.lower_level)->MAX_READ;
+  std::size_t to_read = static_cast<CACHE*>(ITLB_bus.sliced_lower_level)->MAX_READ;
 
   while (available_fetch_bandwidth > 0 && to_read > 0 && !ITLB_bus.PROCESSED.empty()) {
     PACKET& itlb_entry = ITLB_bus.PROCESSED.front();
@@ -1006,7 +1006,7 @@ void O3_CPU::handle_memory_return()
   }
 
   available_fetch_bandwidth = FETCH_WIDTH;
-  to_read = static_cast<CACHE*>(L1I_bus.lower_level)->MAX_READ;
+  to_read = static_cast<CACHE*>(L1I_bus.sliced_lower_level)->MAX_READ;
 
   while (available_fetch_bandwidth > 0 && to_read > 0 && !L1I_bus.PROCESSED.empty()) {
     PACKET& l1i_entry = L1I_bus.PROCESSED.front();
@@ -1030,7 +1030,7 @@ void O3_CPU::handle_memory_return()
   }
 
   // Data Memory
-  to_read = static_cast<CACHE*>(DTLB_bus.lower_level)->MAX_READ;
+  to_read = static_cast<CACHE*>(DTLB_bus.sliced_lower_level)->MAX_READ;
 
   while (to_read > 0 && !DTLB_bus.PROCESSED.empty()) { // DTLB
     PACKET& dtlb_entry = DTLB_bus.PROCESSED.front();
@@ -1058,7 +1058,7 @@ void O3_CPU::handle_memory_return()
     --to_read;
   }
 
-  to_read = static_cast<CACHE*>(L1D_bus.lower_level)->MAX_READ;
+  to_read = static_cast<CACHE*>(L1D_bus.sliced_lower_level)->MAX_READ;
   while (to_read > 0 && !L1D_bus.PROCESSED.empty()) { // L1D
     PACKET& l1d_entry = L1D_bus.PROCESSED.front();
 
@@ -1095,7 +1095,7 @@ void O3_CPU::retire_rob()
 
         // sq_index and rob_index are no longer available after retirement
         // but we pass this information to avoid segmentation fault
-        data_packet.fill_level = L1D_bus.lower_level->fill_level;
+        data_packet.fill_level = L1D_bus.sliced_lower_level->fill_level;
         data_packet.cpu = cpu;
         data_packet.address = sq_it->physical_address;
         data_packet.v_address = sq_it->virtual_address;
@@ -1105,7 +1105,7 @@ void O3_CPU::retire_rob()
         data_packet.asid[0] = sq_it->asid[0];
         data_packet.asid[1] = sq_it->asid[1];
 
-        auto result = L1D_bus.lower_level->add_wq(&data_packet);
+        auto result = L1D_bus.sliced_lower_level->add_wq(&data_packet);
         if (result != -2) {
           ROB.front().destination_memory[i] = 0;
           LSQ_ENTRY empty;
