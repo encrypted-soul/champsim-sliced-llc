@@ -118,11 +118,11 @@ public:
       uint32_t hit_lat, uint32_t fill_lat, uint32_t max_read,
       uint32_t max_write, std::size_t offset_bits, bool pref_load,
       bool wq_full_addr, bool va_pref, unsigned pref_act_mask,
-      MemoryRequestConsumer *ll, vector<MemoryRequestConsumer *> lls,
+      vector<MemoryRequestConsumer *> lls,
       pref_t pref, repl_t repl)
       : CACHE(v1, freq_scale, fill_level, v2, v3, v5, v6, v7, v8, hit_lat,
               fill_lat, max_read, max_write, offset_bits, pref_load,
-              wq_full_addr, va_pref, pref_act_mask, ll, pref, repl) {
+              wq_full_addr, va_pref, pref_act_mask, lls[0], pref, repl) {
     //assert(lls.size() == NUM_CPUS);
     all_lower_levels = std::move(lls);
   }

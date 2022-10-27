@@ -16,7 +16,7 @@ extern VirtualMemory vmem;
 extern uint8_t warmup_complete[NUM_CPUS];
 
 uint32_t L2C::get_slice(uint64_t address){
-	return (address >> OFFSET_BITS) % 2;
+	return (address >> OFFSET_BITS) % NUM_CPUS;
 }
 
 void L2C::handle_fill()
