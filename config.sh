@@ -19,6 +19,7 @@ def norm_fname(fname):
 ###
 # Begin format strings
 ###
+l2c_fmtstr = 'L2C {name}("{name}", {frequency}, {fill_level}, {sets}, {ways}, {wq_size}, {rq_size}, {pq_size}, {mshr_size}, {hit_latency}, {fill_latency}, {max_read}, {max_write}, {offset_bits}, {prefetch_as_load:b}, {wq_check_full_addr:b}, {virtual_prefetch:b}, {prefetch_activate_mask}, {lower_level}, CACHE::pref_t::{prefetcher_name}, CACHE::repl_t::{replacement_name});\n'
 
 cache_fmtstr = 'CACHE {name}("{name}", {frequency}, {fill_level}, {sets}, {ways}, {wq_size}, {rq_size}, {pq_size}, {mshr_size}, {hit_latency}, {fill_latency}, {max_read}, {max_write}, {offset_bits}, {prefetch_as_load:b}, {wq_check_full_addr:b}, {virtual_prefetch:b}, {prefetch_activate_mask}, {lower_level}, CACHE::pref_t::{prefetcher_name}, CACHE::repl_t::{replacement_name});\n'
 ptw_fmtstr = 'PageTableWalker {name}("{name}", {cpu}, {fill_level}, {pscl5_set}, {pscl5_way}, {pscl4_set}, {pscl4_way}, {pscl3_set}, {pscl3_way}, {pscl2_set}, {pscl2_way}, {ptw_rq_size}, {ptw_mshr_size}, {ptw_max_read}, {ptw_max_write}, 0, {lower_level});\n'
@@ -123,17 +124,36 @@ else:
 
 # Append LLC to cache array
 # LLC operates at maximum freqency of cores, if not already specified
-caches['LLC'] = ChainMap(caches.get('LLC',{}), config_file['LLC'].copy(), {'frequency': max(cpu['frequency'] for cpu in cores)}, default_llc.copy())
+#caches['LLC'] = ChainMap(caches.get('LLC',{}), config_file['LLC'].copy(), {'frequency': max(cpu['frequency'] for cpu in cores)}, default_llc.copy())
 
 # If specified in the core, move definition to cache array
 for cpu in cores:
     # Assign defaults that are unique per core
-    for cache_name in ('L1I', 'L1D', 'L2C', 'ITLB', 'DTLB', 'STLB'):
+    for cache_name in ('L1I', 'L1D', 'L2C', 'ITLB', 'DTLB', 'STLB','LLC'):
         if isinstance(cpu[cache_name], dict):
             cpu[cache_name] = ChainMap(cpu[cache_name], {'name': cpu['name'] + '_' + cache_name}, config_file[cache_name].copy())
             caches[cpu[cache_name]['name']] = cpu[cache_name]
             cpu[cache_name] = cpu[cache_name]['name']
+            print(cpu[cache_name])
+print('end')
+#print(caches)
 
+# Sliced LLC addresses
+slices = '{'
+
+# for cpu in cores:
+#     ll = '&'+cpu['LLC']
+#     print(ll,"  fr \n")
+#     slices.add(ll.strip(' " " '))
+
+for cpu in cores:
+    slices = slices + '&' + cpu['LLC'] + ','
+
+slices = slices[:-1]
+slices = slices+'}'
+
+
+print(slices,"\n")  #DEBUG
 # Assign defaults that are unique per core
 for cpu in cores:
     cpu['PTW'] = ChainMap(cpu.get('PTW',{}), config_file.get('PTW', {}), {'name': cpu['name'] + '_PTW', 'cpu': cpu['index'], 'frequency': cpu['frequency'], 'lower_level': cpu['L1D']}, default_ptw.copy())
@@ -141,11 +161,11 @@ for cpu in cores:
     caches[cpu['L1D']] = ChainMap(caches[cpu['L1D']], {'frequency': cpu['frequency'], 'lower_level': cpu['L2C']}, default_l1d.copy())
     caches[cpu['ITLB']] = ChainMap(caches[cpu['ITLB']], {'frequency': cpu['frequency'], 'lower_level': cpu['STLB']}, default_itlb.copy())
     caches[cpu['DTLB']] = ChainMap(caches[cpu['DTLB']], {'frequency': cpu['frequency'], 'lower_level': cpu['STLB']}, default_dtlb.copy())
-
+    caches[cpu['L2C']] = ChainMap(caches[cpu['L2C']], {'frequency': cpu['frequency'], 'lower_level': cpu['LLC']}, default_l2c.copy())
     # L2C
-    cache_name = caches[cpu['L1D']]['lower_level']
-    if cache_name != 'DRAM':
-        caches[cache_name] = ChainMap(caches[cache_name], {'frequency': cpu['frequency'], 'lower_level': 'LLC'}, default_l2c.copy())
+    #cache_name = caches[cpu['L1D']]['lower_level']
+    #if cache_name != 'DRAM':
+     #   caches[cache_name] = ChainMap(caches[cache_name], {'frequency': cpu['frequency'], 'lower_level': 'LLC'}, default_l2c.copy())
 
     # STLB
     cache_name = caches[cpu['DTLB']]['lower_level']
@@ -155,13 +175,13 @@ for cpu in cores:
     # LLC
     cache_name = caches[caches[cpu['L1D']]['lower_level']]['lower_level']
     if cache_name != 'DRAM':
-        caches[cache_name] = ChainMap(caches[cache_name], default_llc.copy())
+        caches[cache_name] = ChainMap(caches[cache_name], {'frequency': cpu['frequency'], 'lower_level': 'DRAM'},  default_llc.copy())
 
 # Remove caches that are inaccessible
 accessible = [False]*len(caches)
 for i,ll in enumerate(caches.values()):
     accessible[i] |= any(ul['lower_level'] == ll['name'] for ul in caches.values()) # The cache is accessible from another cache
-    accessible[i] |= any(ll['name'] in [cpu['L1I'], cpu['L1D'], cpu['ITLB'], cpu['DTLB']] for cpu in cores) # The cache is accessible from a core
+    accessible[i] |= any(ll['name'] in [cpu['L1I'], cpu['L1D'], cpu['ITLB'], cpu['DTLB'], cpu['L2C']] for cpu in cores) # The cache is accessible from a core
 caches = dict(itertools.compress(caches.items(), accessible))
 
 # Establish latencies in caches
@@ -202,6 +222,11 @@ for cpu in cores:
         cache_name = caches[cache_name]['lower_level']
 
     cache_name = cpu['L1D']
+    while cache_name in caches:
+        caches[cache_name]['offset_bits'] = 'LOG2_BLOCK_SIZE'
+        cache_name = caches[cache_name]['lower_level']
+        
+    cache_name = cpu['L2C']
     while cache_name in caches:
         caches[cache_name]['offset_bits'] = 'LOG2_BLOCK_SIZE'
         cache_name = caches[cache_name]['lower_level']
@@ -380,17 +405,22 @@ for i in range(len(cores)):
     cores[i]['PTW'] = cores[i]['PTW']['name']
 
 memory_system = dict(**caches, **ptws)
-
+#print(memory_system)   #DEBUG
 # Give each element a fill level
-active_keys = list(itertools.chain.from_iterable((cpu['ITLB'], cpu['DTLB'], cpu['L1I'], cpu['L1D']) for cpu in cores))
+active_keys = list(itertools.chain.from_iterable((cpu['ITLB'], cpu['DTLB'], cpu['L1I'], cpu['L1D'],cpu['L2C']) for cpu in cores))
+#print(active_keys)     #DEBUG
 for k in active_keys:
     memory_system[k]['fill_level'] = 1
 
 for fill_level in range(1,len(memory_system)+1):
-    for k in active_keys:
-        if memory_system[k]['lower_level'] != 'DRAM':
-            memory_system[memory_system[k]['lower_level']]['fill_level'] = max(memory_system[memory_system[k]['lower_level']].get('fill_level',0), fill_level+1)
-    active_keys = [memory_system[k]['lower_level'] for k in active_keys if memory_system[k]['lower_level'] != 'DRAM']
+	for k in active_keys:
+		#print(k)
+		
+        		if memory_system[k]['lower_level'] != 'DRAM':
+            			
+            				memory_system[memory_system[k]['lower_level']]['fill_level'] = max(memory_system[memory_system[k]['lower_level']].get('fill_level',0), fill_level+1)
+	
+	active_keys = [memory_system[k]['lower_level'] for k in active_keys if memory_system[k]['lower_level'] != 'DRAM']
 
 # Remove name index
 memory_system = list(memory_system.values())
@@ -414,6 +444,13 @@ for elem in memory_system:
 # Begin file writing
 ###
 
+#Adding changes for sliced LLC
+
+for cpu in cores:
+    caches[cpu['L2C']]['lower_level'] = slices
+    
+print(caches[cpu['L2C']]['name'][5:],"\n")
+
 # Instantiation file
 with open(instantiation_file_name, 'wt') as wfp:
     wfp.write('/***\n * THIS FILE IS AUTOMATICALLY GENERATED\n * Do not edit this file. It will be overwritten when the configure script is run.\n ***/\n\n')
@@ -427,6 +464,7 @@ with open(instantiation_file_name, 'wt') as wfp:
     wfp.write('#include "' + os.path.basename(constants_header_name) + '"\n')
     wfp.write('#include <array>\n')
     wfp.write('#include <vector>\n')
+    wfp.write('#include "l2c.h"\n')
 
     wfp.write(vmem_fmtstr.format(attrs=config_file['virtual_memory']))
     wfp.write('\n')
@@ -435,7 +473,13 @@ with open(instantiation_file_name, 'wt') as wfp:
         if 'pscl5_set' in elem:
             wfp.write(ptw_fmtstr.format(**elem))
         else:
-            wfp.write(cache_fmtstr.format(**elem))
+            if(l2c_fmtstr.format(**elem)[9:12] == 'L2C'):
+                wfp.write(l2c_fmtstr.format(**elem))
+                
+                
+            else:
+                wfp.write(cache_fmtstr.format(**elem))
+                print(l2c_fmtstr.format(**elem)[9:12])
 
     for cpu in cores:
         wfp.write(cpu_fmtstr.format(**cpu))

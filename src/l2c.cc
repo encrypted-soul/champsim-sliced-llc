@@ -1,4 +1,4 @@
-#include "cache.h"
+#include "l2c.h"
 
 #include <algorithm>
 #include <iterator>
@@ -15,7 +15,11 @@
 extern VirtualMemory vmem;
 extern uint8_t warmup_complete[NUM_CPUS];
 
-void CACHE::handle_fill()
+uint32_t L2C::get_slice(uint64_t address){
+	return (address >> OFFSET_BITS) % NUM_CPUS;
+}
+
+void L2C::handle_fill()
 {
   while (writes_available_this_cycle > 0) {
     auto fill_mshr = MSHR.begin();
@@ -23,6 +27,7 @@ void CACHE::handle_fill()
       return;
 
     // find victim
+    uint32_t slice = get_slice(fill_mshr->address);
     uint32_t set = get_set(fill_mshr->address);
 
     auto set_begin = std::next(std::begin(block), set * NUM_WAY);
@@ -33,7 +38,8 @@ void CACHE::handle_fill()
       way = impl_replacement_find_victim(fill_mshr->cpu, fill_mshr->instr_id, set, &block.data()[set * NUM_WAY], fill_mshr->ip, fill_mshr->address,
                                          fill_mshr->type);
 
-    bool success = filllike_miss(set, way, *fill_mshr);
+
+    bool success = filllike_miss(set, way,slice, *fill_mshr);
     if (!success)
       return;
 
@@ -50,7 +56,7 @@ void CACHE::handle_fill()
   }
 }
 
-void CACHE::handle_writeback()
+void L2C::handle_writeback()
 {
   while (writes_available_this_cycle > 0) {
     if (!WQ.has_ready())
@@ -60,6 +66,7 @@ void CACHE::handle_writeback()
     PACKET& handle_pkt = WQ.front();
 
     // access cache
+    uint32_t slice = get_slice(handle_pkt.address);
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
@@ -90,7 +97,7 @@ void CACHE::handle_writeback()
           way = impl_replacement_find_victim(handle_pkt.cpu, handle_pkt.instr_id, set, &block.data()[set * NUM_WAY], handle_pkt.ip, handle_pkt.address,
                                              handle_pkt.type);
 
-        success = filllike_miss(set, way, handle_pkt);
+        success = filllike_miss(set, way, slice, handle_pkt);
       }
 
       if (!success)
@@ -103,7 +110,7 @@ void CACHE::handle_writeback()
   }
 }
 
-void CACHE::handle_read()
+void L2C::handle_read()
 {
   while (reads_available_this_cycle > 0) {
 
@@ -117,6 +124,7 @@ void CACHE::handle_read()
     // vaddr to the prefetcher
     ever_seen_data |= (handle_pkt.v_address != handle_pkt.ip);
 
+    uint32_t slice = get_slice(handle_pkt.address);
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
@@ -135,7 +143,7 @@ void CACHE::handle_read()
   }
 }
 
-void CACHE::handle_prefetch()
+void L2C::handle_prefetch()
 {
   while (reads_available_this_cycle > 0) {
     if (!PQ.has_ready())
@@ -144,6 +152,7 @@ void CACHE::handle_prefetch()
     // handle the oldest entry
     PACKET& handle_pkt = PQ.front();
 
+    uint32_t slice = get_slice(handle_pkt.address);
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
@@ -162,7 +171,7 @@ void CACHE::handle_prefetch()
   }
 }
 
-void CACHE::readlike_hit(std::size_t set, std::size_t way, PACKET& handle_pkt)
+void L2C::readlike_hit(std::size_t set, std::size_t way, PACKET& handle_pkt)
 {
   DP(if (warmup_complete[handle_pkt.cpu]) {
     std::cout << "[" << NAME << "] " << __func__ << " hit";
@@ -201,8 +210,10 @@ void CACHE::readlike_hit(std::size_t set, std::size_t way, PACKET& handle_pkt)
   }
 }
 
-bool CACHE::readlike_miss(PACKET& handle_pkt)
+bool L2C::readlike_miss(PACKET& handle_pkt)
 {
+
+  
   DP(if (warmup_complete[handle_pkt.cpu]) {
     std::cout << "[" << NAME << "] " << __func__ << " miss";
     std::cout << " instr_id: " << handle_pkt.instr_id << " address: " << std::hex << (handle_pkt.address >> OFFSET_BITS);
@@ -212,6 +223,9 @@ bool CACHE::readlike_miss(PACKET& handle_pkt)
     std::cout << " cycle: " << current_cycle << std::endl;
   });
 
+
+  uint32_t slice = get_slice(handle_pkt.address);
+  sliced_lower_level = all_lower_levels[slice];
   // check mshr
   auto mshr_entry = std::find_if(MSHR.begin(), MSHR.end(), eq_addr<PACKET>(handle_pkt.address, OFFSET_BITS));
   bool mshr_full = (MSHR.size() == MSHR_SIZE);
@@ -277,8 +291,9 @@ bool CACHE::readlike_miss(PACKET& handle_pkt)
   return true;
 }
 
-bool CACHE::filllike_miss(std::size_t set, std::size_t way, PACKET& handle_pkt)
+bool L2C::filllike_miss(std::size_t set, std::size_t way, std::size_t slice, PACKET& handle_pkt)
 {
+
   DP(if (warmup_complete[handle_pkt.cpu]) {
     std::cout << "[" << NAME << "] " << __func__ << " miss";
     std::cout << " instr_id: " << handle_pkt.instr_id << " address: " << std::hex << (handle_pkt.address >> OFFSET_BITS);
@@ -287,6 +302,9 @@ bool CACHE::filllike_miss(std::size_t set, std::size_t way, PACKET& handle_pkt)
     std::cout << " type: " << +handle_pkt.type;
     std::cout << " cycle: " << current_cycle << std::endl;
   });
+
+
+  sliced_lower_level = all_lower_levels[slice];
 
   bool bypass = (way == NUM_WAY);
 #ifndef LLC_BYPASS
@@ -356,7 +374,7 @@ bool CACHE::filllike_miss(std::size_t set, std::size_t way, PACKET& handle_pkt)
   return true;
 }
 
-void CACHE::operate()
+void L2C::operate()
 {
   operate_writes();
   operate_reads();
@@ -364,7 +382,7 @@ void CACHE::operate()
   impl_prefetcher_cycle_operate();
 }
 
-void CACHE::operate_writes()
+void L2C::operate_writes()
 {
   // perform all writes
   writes_available_this_cycle = MAX_WRITE;
@@ -374,7 +392,7 @@ void CACHE::operate_writes()
   WQ.operate();
 }
 
-void CACHE::operate_reads()
+void L2C::operate_reads()
 {
   // perform all reads
   reads_available_this_cycle = MAX_READ;
@@ -387,16 +405,16 @@ void CACHE::operate_reads()
   VAPQ.operate();
 }
 
-uint32_t CACHE::get_set(uint64_t address) { return ((address >> OFFSET_BITS) & bitmask(lg2(NUM_SET))); }
+uint32_t L2C::get_set(uint64_t address) { return ((address >> OFFSET_BITS) & bitmask(lg2(NUM_SET))); }
 
-uint32_t CACHE::get_way(uint64_t address, uint32_t set)
+uint32_t L2C::get_way(uint64_t address, uint32_t set)
 {
   auto begin = std::next(block.begin(), set * NUM_WAY);
   auto end = std::next(begin, NUM_WAY);
   return std::distance(begin, std::find_if(begin, end, eq_addr<BLOCK>(address, OFFSET_BITS)));
 }
 
-int CACHE::invalidate_entry(uint64_t inval_addr)
+int L2C::invalidate_entry(uint64_t inval_addr)
 {
   uint32_t set = get_set(inval_addr);
   uint32_t way = get_way(inval_addr, set);
@@ -407,7 +425,7 @@ int CACHE::invalidate_entry(uint64_t inval_addr)
   return way;
 }
 
-int CACHE::add_rq(PACKET* packet)
+int L2C::add_rq(PACKET* packet)
 {
   assert(packet->address != 0);
   RQ_ACCESS++;
@@ -470,7 +488,7 @@ int CACHE::add_rq(PACKET* packet)
   return RQ.occupancy();
 }
 
-int CACHE::add_wq(PACKET* packet)
+int L2C::add_wq(PACKET* packet)
 {
   WQ_ACCESS++;
 
@@ -513,9 +531,10 @@ int CACHE::add_wq(PACKET* packet)
   return WQ.occupancy();
 }
 
-int CACHE::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
+int L2C::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
 {
   pf_requested++;
+  sliced_lower_level = all_lower_levels[get_slice(pf_addr)];
 
   PACKET pf_packet;
   pf_packet.type = PREFETCH;
@@ -543,7 +562,7 @@ int CACHE::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefet
   return 0;
 }
 
-int CACHE::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
+int L2C::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
 {
   static bool deprecate_printed = false;
   if (!deprecate_printed) {
@@ -559,7 +578,7 @@ int CACHE::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, bool
   return prefetch_line(pf_addr, fill_this_level, prefetch_metadata);
 }
 
-void CACHE::va_translate_prefetches()
+void L2C::va_translate_prefetches()
 {
   // TEMPORARY SOLUTION: mark prefetches as translated after a fixed latency
   if (VAPQ.has_ready()) {
@@ -577,7 +596,7 @@ void CACHE::va_translate_prefetches()
   }
 }
 
-int CACHE::add_pq(PACKET* packet)
+int L2C::add_pq(PACKET* packet)
 {
   assert(packet->address != 0);
   PQ_ACCESS++;
@@ -636,7 +655,7 @@ int CACHE::add_pq(PACKET* packet)
   return PQ.occupancy();
 }
 
-void CACHE::return_data(PACKET* packet)
+void L2C::return_data(PACKET* packet)
 {
   // check MSHR information
   auto mshr_entry = std::find_if(MSHR.begin(), MSHR.end(), eq_addr<PACKET>(packet->address, OFFSET_BITS));
@@ -670,7 +689,7 @@ void CACHE::return_data(PACKET* packet)
   std::iter_swap(mshr_entry, first_unreturned);
 }
 
-uint32_t CACHE::get_occupancy(uint8_t queue_type, uint64_t address)
+uint32_t L2C::get_occupancy(uint8_t queue_type, uint64_t address)
 {
   if (queue_type == 0)
     return std::count_if(MSHR.begin(), MSHR.end(), is_valid<PACKET>());
@@ -684,7 +703,7 @@ uint32_t CACHE::get_occupancy(uint8_t queue_type, uint64_t address)
   return 0;
 }
 
-uint32_t CACHE::get_size(uint8_t queue_type, uint64_t address)
+uint32_t L2C::get_size(uint8_t queue_type, uint64_t address)
 {
   if (queue_type == 0)
     return MSHR_SIZE;
@@ -698,9 +717,9 @@ uint32_t CACHE::get_size(uint8_t queue_type, uint64_t address)
   return 0;
 }
 
-bool CACHE::should_activate_prefetcher(int type) { return (1 << static_cast<int>(type)) & pref_activate_mask; }
+bool L2C::should_activate_prefetcher(int type) { return (1 << static_cast<int>(type)) & pref_activate_mask; }
 
-void CACHE::print_deadlock()
+void L2C::print_deadlock()
 {
   if (!std::empty(MSHR)) {
     std::cout << NAME << " MSHR Entry" << std::endl;
