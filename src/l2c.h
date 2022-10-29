@@ -61,6 +61,7 @@ public:
 
   // uint64_t total_miss_latency = 0;
 
+  const uint32_t DECODER_LOGIC_LATENCY = 3,DECODER_REDIRECTION_LATENCY = 1;
   // functions
   int add_rq(PACKET *packet) override;
   int add_wq(PACKET *packet) override;

@@ -16,6 +16,7 @@ extern VirtualMemory vmem;
 extern uint8_t warmup_complete[NUM_CPUS];
 
 uint32_t L2C::get_slice(uint64_t address){
+  total_miss_latency += DECODER_LOGIC_LATENCY + DECODER_REDIRECTION_LATENCY;
 	return (address >> OFFSET_BITS) % NUM_CPUS;
 }
 
@@ -26,8 +27,6 @@ void L2C::handle_fill()
     if (fill_mshr == std::end(MSHR) || fill_mshr->event_cycle > current_cycle)
       return;
 
-    // find victim
-    uint32_t slice = get_slice(fill_mshr->address);
     uint32_t set = get_set(fill_mshr->address);
 
     auto set_begin = std::next(std::begin(block), set * NUM_WAY);
@@ -39,6 +38,8 @@ void L2C::handle_fill()
                                          fill_mshr->type);
 
 
+    // find victim
+    uint32_t slice = get_slice(fill_mshr->address);
     bool success = filllike_miss(set, way,slice, *fill_mshr);
     if (!success)
       return;
@@ -66,7 +67,6 @@ void L2C::handle_writeback()
     PACKET& handle_pkt = WQ.front();
 
     // access cache
-    uint32_t slice = get_slice(handle_pkt.address);
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
@@ -97,6 +97,7 @@ void L2C::handle_writeback()
           way = impl_replacement_find_victim(handle_pkt.cpu, handle_pkt.instr_id, set, &block.data()[set * NUM_WAY], handle_pkt.ip, handle_pkt.address,
                                              handle_pkt.type);
 
+        uint32_t slice = get_slice(handle_pkt.address);
         success = filllike_miss(set, way, slice, handle_pkt);
       }
 
@@ -124,7 +125,6 @@ void L2C::handle_read()
     // vaddr to the prefetcher
     ever_seen_data |= (handle_pkt.v_address != handle_pkt.ip);
 
-    uint32_t slice = get_slice(handle_pkt.address);
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
@@ -152,7 +152,6 @@ void L2C::handle_prefetch()
     // handle the oldest entry
     PACKET& handle_pkt = PQ.front();
 
-    uint32_t slice = get_slice(handle_pkt.address);
     uint32_t set = get_set(handle_pkt.address);
     uint32_t way = get_way(handle_pkt.address, set);
 
@@ -224,8 +223,6 @@ bool L2C::readlike_miss(PACKET& handle_pkt)
   });
 
 
-  uint32_t slice = get_slice(handle_pkt.address);
-  sliced_lower_level = all_lower_levels[slice];
   // check mshr
   auto mshr_entry = std::find_if(MSHR.begin(), MSHR.end(), eq_addr<PACKET>(handle_pkt.address, OFFSET_BITS));
   bool mshr_full = (MSHR.size() == MSHR_SIZE);
@@ -259,6 +256,8 @@ bool L2C::readlike_miss(PACKET& handle_pkt)
     bool is_read = prefetch_as_load || (handle_pkt.type != PREFETCH);
 
     // check to make sure the lower level queue has room for this read miss
+    uint32_t slice = get_slice(handle_pkt.address);
+    sliced_lower_level = all_lower_levels[slice];
     int queue_type = (is_read) ? 1 : 3;
     if (sliced_lower_level->get_occupancy(queue_type, handle_pkt.address) == sliced_lower_level->get_size(queue_type, handle_pkt.address))
       return false;
@@ -355,6 +354,7 @@ bool L2C::filllike_miss(std::size_t set, std::size_t way, std::size_t slice, PAC
     fill_block.instr_id = handle_pkt.instr_id;
   }
 
+  // NOTE - 3 Cycles for decoder, 1 for redirection
   if (warmup_complete[handle_pkt.cpu] && (handle_pkt.cycle_enqueued != 0))
     total_miss_latency += current_cycle - handle_pkt.cycle_enqueued;
 
@@ -534,7 +534,9 @@ int L2C::add_wq(PACKET* packet)
 int L2C::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
 {
   pf_requested++;
-  sliced_lower_level = all_lower_levels[get_slice(pf_addr)];
+  uint32_t slice = get_slice(pf_addr);
+  sliced_lower_level = all_lower_levels[slice];
+  // NOTE - Add Decoder latency here?
 
   PACKET pf_packet;
   pf_packet.type = PREFETCH;
