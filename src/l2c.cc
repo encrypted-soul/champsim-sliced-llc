@@ -15,9 +15,10 @@
 extern VirtualMemory vmem;
 extern uint8_t warmup_complete[NUM_CPUS];
 
-uint32_t L2C::get_slice(uint64_t address){
-  total_miss_latency += DECODER_LOGIC_LATENCY + DECODER_REDIRECTION_LATENCY;
-	return (address >> OFFSET_BITS) % NUM_CPUS;
+uint32_t L2C::get_slice(uint32_t cpu, uint64_t address){
+  uint32_t slice = (address >> OFFSET_BITS) % NUM_CPUS;
+  total_miss_latency += DECODER_LOGIC_LATENCY + (slice == cpu) ? 0 : DECODER_REDIRECTION_LATENCY;
+	return slice;
 }
 
 void L2C::handle_fill()
@@ -39,7 +40,7 @@ void L2C::handle_fill()
 
 
     // find victim
-    uint32_t slice = get_slice(fill_mshr->address);
+    uint32_t slice = get_slice(fill_mshr->cpu,fill_mshr->address);
     bool success = filllike_miss(set, way,slice, *fill_mshr);
     if (!success)
       return;
@@ -97,7 +98,7 @@ void L2C::handle_writeback()
           way = impl_replacement_find_victim(handle_pkt.cpu, handle_pkt.instr_id, set, &block.data()[set * NUM_WAY], handle_pkt.ip, handle_pkt.address,
                                              handle_pkt.type);
 
-        uint32_t slice = get_slice(handle_pkt.address);
+        uint32_t slice = get_slice(handle_pkt.cpu,handle_pkt.address);
         success = filllike_miss(set, way, slice, handle_pkt);
       }
 
@@ -256,7 +257,7 @@ bool L2C::readlike_miss(PACKET& handle_pkt)
     bool is_read = prefetch_as_load || (handle_pkt.type != PREFETCH);
 
     // check to make sure the lower level queue has room for this read miss
-    uint32_t slice = get_slice(handle_pkt.address);
+    uint32_t slice = get_slice(handle_pkt.cpu, handle_pkt.address);
     sliced_lower_level = all_lower_levels[slice];
     int queue_type = (is_read) ? 1 : 3;
     if (sliced_lower_level->get_occupancy(queue_type, handle_pkt.address) == sliced_lower_level->get_size(queue_type, handle_pkt.address))
@@ -534,7 +535,7 @@ int L2C::add_wq(PACKET* packet)
 int L2C::prefetch_line(uint64_t pf_addr, bool fill_this_level, uint32_t prefetch_metadata)
 {
   pf_requested++;
-  uint32_t slice = get_slice(pf_addr);
+  uint32_t slice = get_slice(cpu, pf_addr);
   sliced_lower_level = all_lower_levels[slice];
   // NOTE - Add Decoder latency here?
 
